@@ -1,0 +1,11 @@
+name: ssh
+image: okteto/golang:1
+command:
+- bash
+workdir: /go/src/app
+forward:
+  - 22000:22000
+  - 2345:2345
+securityContext:
+  capabilities:
+    add: ["SYS_PTRACE"]
