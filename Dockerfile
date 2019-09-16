@@ -7,7 +7,7 @@ COPY go.sum .
 RUN go mod download
 
 COPY * ./
-RUN CGO=0 GOOS=linux go build -o remote -tags "osusergo netgo static_build" ./...
+RUN make
 
 FROM alpine
 
