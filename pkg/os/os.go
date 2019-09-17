@@ -2,20 +2,21 @@ package os
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type distribution string
 
 var (
-	debian distribution = "debian"
-	alpine distribution = "alpine"
+	debian  distribution = "debian"
+	alpine  distribution = "alpine"
 	unknown distribution = "unknown"
-	centos distribution = "centos"
+	centos  distribution = "centos"
 
 	// ErrNoBash is used when bash is not available in the $PATH
 	ErrNoBash = fmt.Errorf("bash needs to be available in the $PATH of your development environment")
@@ -33,74 +34,32 @@ func getDistribution() (distribution, error) {
 
 // AssertBash installs bash locally if not in the path
 func AssertBash() error {
-	if p, err := exec.LookPath("bush"); err == nil {
+	if p, err := exec.LookPath("bash"); err == nil {
 		log.Printf("bash exists at %s", p)
 		return nil
 	}
 
 	d, err := getDistribution()
 	if err != nil {
-		return fmt.Errorf("failed to detect the local distribution: %w", err)
+		log.Errorf("failed to detect the local distribution: %s", err)
+		return ErrNoBash
 	}
 
 	if d == unknown {
+		log.Errorf("unknown local distribution")
 		return ErrNoBash
 	}
-
-	log.Printf("installing bash")
 
 	switch d {
 	case debian:
-		stdout, err := exec.Command("apt-get", "update").CombinedOutput()
-		if err != nil {
-			log.Printf(string(stdout))
-			return ErrNoBash
-		}
-
-		stdout, err = exec.Command("apt-get", "install", "-y").CombinedOutput()
-		if err == nil {
-			return nil
-		}
-
-		log.Printf(string(stdout))
-		return ErrNoBash
-
+		return install(exec.Command("apt-get", "update"), exec.Command("apt-get", "install", "-y"))
 	case alpine:
-		stdout, err := exec.Command("apk", "update", "--no-cache").CombinedOutput()
-		if err != nil {
-			log.Printf(string(stdout))
-			return ErrNoBash
-		}
-
-		stdout, err = exec.Command("apk", "add", "bash").CombinedOutput()
-		if err == nil {
-			return nil
-		}
-		
-		log.Printf(string(stdout))
-		return ErrNoBash
-		
+		return install(exec.Command("apk", "update", "--no-cache"), exec.Command("apk", "add", "bash"))
 	case centos:
-		stdout, err := exec.Command("yum", "-y", "update").CombinedOutput()
-		if err != nil {
-			log.Printf(string(stdout))
-			return ErrNoBash
-		}
-
-		stdout, err = exec.Command("yum", "install", "-y", "bash").CombinedOutput();
-		if err == nil {
-			return nil
-		}
-
-		log.Printf(string(stdout))
-		return ErrNoBash
-
+		return install(exec.Command("yum", "-y", "update"), exec.Command("yum", "install", "-y", "bash"))
 	default:
 		return ErrNoBash
 	}
-
-	log.Printf("bash installed successfully")
-	return nil
 }
 
 func fileExists(filename string) bool {
@@ -134,5 +93,22 @@ func fromOSRelease() (distribution, error) {
 		}
 	}
 
-	return Unknown, nil
+	return unknown, nil
+}
+
+func install(updateCmd, installCmd *exec.Cmd) error {
+	stdout, err := updateCmd.CombinedOutput()
+	if err != nil {
+		log.Printf(string(stdout))
+		return ErrNoBash
+	}
+
+	stdout, err = installCmd.CombinedOutput()
+	if err == nil {
+		log.Printf("bash installed successfully")
+		return nil
+	}
+
+	log.Printf(string(stdout))
+	return ErrNoBash
 }
