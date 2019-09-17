@@ -16,7 +16,7 @@ func main() {
 	}
 
 	port := 22000
-	if p, ok := os.LookupEnv("PORT"); ok {
+	if p, ok := os.LookupEnv("OKTETO_REMOTE_PORT"); ok {
 		var err error
 		port, err = strconv.Atoi(p)
 		if err != nil {
