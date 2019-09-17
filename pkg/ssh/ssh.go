@@ -1,20 +1,18 @@
-package main
+package ssh
 
 import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/gliderlabs/ssh"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
-
-	log "github.com/sirupsen/logrus"
-
-	"github.com/gliderlabs/ssh"
-	"github.com/google/uuid"
 )
 
 var (
@@ -57,7 +55,11 @@ func assert(at string, err error, s ssh.Session) bool {
 }
 
 func handlePTY(s ssh.Session) {
-	io.WriteString(s, "pty not supported \n")
+	cmd := exec.Command("sh")
+	cmd.Env = append(cmd.Env, os.Environ()...)
+	cmd.Env = append(cmd.Env, s.Environ()...)
+	cmd.Stdout = s
+	cmd.Stderr = s.Stderr()
 }
 
 func connectionHandler(s ssh.Session) {
@@ -89,7 +91,7 @@ func connectionHandler(s ssh.Session) {
 
 	execPath, err := filepath.Abs(executable)
 	if err != nil {
-		io.WriteString(s, fmt.Sprintf("unable to locate handler: %s\n", executable))
+		io.WriteString(s, fmt.Sprintf("unable to locate executable: %s\n", executable))
 		return
 	}
 
@@ -132,11 +134,12 @@ func connectionHandler(s ssh.Session) {
 	}
 }
 
-func main() {
+// ListenAndServe starts the SSH server using port
+func ListenAndServe(port int) error {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
-		Addr:        ":22000",
+		Addr:        fmt.Sprintf(":%d", port),
 		IdleTimeout: 30 * time.Second,
 		Handler:     connectionHandler,
 		ChannelHandlers: map[string]ssh.ChannelHandler{
@@ -157,6 +160,6 @@ func main() {
 		},
 	}
 
-	log.Println("ssh server started")
-	log.Fatal(server.ListenAndServe())
+	return server.ListenAndServe()
+
 }

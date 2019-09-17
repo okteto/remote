@@ -6,7 +6,9 @@ COPY go.mod .
 COPY go.sum .
 RUN go mod download
 
-COPY * ./
+COPY Makefile /app
+COPY pkg /app/pkg
+COPY cmd /app/cmd
 RUN make
 
 FROM alpine
