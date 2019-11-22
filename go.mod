@@ -10,3 +10,5 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	golang.org/x/crypto v0.0.0-20190911031432-227b76d455e7 // indirect
 )
+
+replace github.com/gliderlabs/ssh v0.2.2 => github.com/rberrelleza/ssh v0.2.2-sftp

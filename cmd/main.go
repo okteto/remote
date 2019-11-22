@@ -24,6 +24,6 @@ func main() {
 		}
 	}
 
-	log.Println("ssh server started")
+	log.Printf("ssh server started in 0.0.0.0:%d\n", port)
 	log.Fatal(ssh.ListenAndServe(port))
 }
