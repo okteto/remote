@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/gliderlabs/ssh"
 	"github.com/google/uuid"
+	"github.com/kr/pty"
 	"github.com/pkg/sftp"
 	log "github.com/sirupsen/logrus"
 )
@@ -57,12 +59,33 @@ func assert(at string, err error, s ssh.Session) bool {
 	return false
 }
 
-func handlePTY(s ssh.Session) {
-	cmd := exec.Command("sh")
+func setWinsize(f *os.File, w, h int) {
+	syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCSWINSZ),
+		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
+}
+
+func handlePTY(logger *log.Entry, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
+	cmd := exec.Command("bash")
+	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 	cmd.Env = append(cmd.Env, os.Environ()...)
-	cmd.Env = append(cmd.Env, s.Environ()...)
-	cmd.Stdout = s
-	cmd.Stderr = s.Stderr()
+
+	f, err := pty.Start(cmd)
+	if err != nil {
+		logger.WithField("error", err).Error("failed to start pty session")
+		return
+	}
+
+	go func() {
+		for win := range winCh {
+			setWinsize(f, win.Width, win.Height)
+		}
+	}()
+
+	go func() {
+		io.Copy(f, s) // stdin
+	}()
+	io.Copy(s, f) // stdout
+	cmd.Wait()
 }
 
 func connectionHandler(s ssh.Session) {
@@ -74,9 +97,10 @@ func connectionHandler(s ssh.Session) {
 	}()
 
 	logger.Printf("starting ssh session with command %+v\n", s.RawCommand())
-	_, _, isPty := s.Pty()
+	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
-		handlePTY(s)
+		logger.Println("handling PTY session")
+		handlePTY(logger, s, ptyReq, winCh)
 		return
 	}
 
@@ -161,10 +185,12 @@ func ListenAndServe(port int) error {
 			"tcpip-forward":        forwardHandler.HandleSSHRequest,
 			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
 		},
-		SubsystemHandlers: map[string]ssh.SubsystemHandler{
-			"sftp": sftpHandler,
-		},
+		//SubsystemHandlers: map[string]ssh.SubsystemHandler{
+		//	"sftp": sftpHandler,
+		//},
 	}
+
+	server.SetOption(ssh.HostKeyPEM([]byte(privateKeyBytes)))
 
 	return server.ListenAndServe()
 
