@@ -4,15 +4,18 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/gliderlabs/ssh"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/gliderlabs/ssh"
+	"github.com/google/uuid"
+	"github.com/pkg/sftp"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -158,8 +161,32 @@ func ListenAndServe(port int) error {
 			"tcpip-forward":        forwardHandler.HandleSSHRequest,
 			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
 		},
+		SubsystemHandlers: map[string]ssh.SubsystemHandler{
+			"sftp": sftpHandler,
+		},
 	}
 
 	return server.ListenAndServe()
 
+}
+
+func sftpHandler(sess ssh.Session) {
+	debugStream := ioutil.Discard
+	serverOptions := []sftp.ServerOption{
+		sftp.WithDebug(debugStream),
+	}
+	server, err := sftp.NewServer(
+		sess,
+		serverOptions...,
+	)
+	if err != nil {
+		log.Printf("sftp server init error: %s\n", err)
+		return
+	}
+	if err := server.Serve(); err == io.EOF {
+		server.Close()
+		log.Println("sftp client exited session.")
+	} else if err != nil {
+		log.Println("sftp server completed with error:", err)
+	}
 }
