@@ -5,6 +5,7 @@ command:
 workdir: /app
 forward:
   - 2345:2345
+  - 22000:22000
 volumes:
  - /go
 securityContext:
