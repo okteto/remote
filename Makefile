@@ -6,5 +6,4 @@ build:
 
 .PHONY: publish
 publish:
-	docker build -t okteto/remote .
-	docker push okteto/remote
+	okteto build -t okteto/remote:ramiro .
