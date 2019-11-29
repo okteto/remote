@@ -185,9 +185,9 @@ func ListenAndServe(port int) error {
 			"tcpip-forward":        forwardHandler.HandleSSHRequest,
 			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
 		},
-		//SubsystemHandlers: map[string]ssh.SubsystemHandler{
-		//	"sftp": sftpHandler,
-		//},
+		SubsystemHandlers: map[string]ssh.SubsystemHandler{
+			"sftp": sftpHandler,
+		},
 	}
 
 	server.SetOption(ssh.HostKeyPEM([]byte(privateKeyBytes)))
