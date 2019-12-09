@@ -68,11 +68,25 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 		}
 	}()
 
+	wg := &sync.WaitGroup{}
 	go func() {
 		io.Copy(f, s) // stdin
 	}()
-	io.Copy(s, f) // stdout
-	cmd.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(s, f) // stdout
+	}()
+
+	wg.Wait()
+	if err := cmd.Wait(); err != nil {
+		logger.WithError(err).Errorf("pty command failed while waiting")
+	}
+
+	if err := s.Exit(getExitStatusFromError(err)); err != nil {
+		logger.WithError(err).Errorf("pty session failed to exit")
+	}
 }
 
 func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
@@ -139,7 +153,7 @@ func connectionHandler(s ssh.Session) {
 	logger := log.WithFields(log.Fields{"session.id": sessionID})
 	defer func() {
 		s.Close()
-		logger.Print("session closed")
+		logger.Info("session closed")
 	}()
 
 	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
@@ -147,7 +161,7 @@ func connectionHandler(s ssh.Session) {
 	cmd := buildCmd(s)
 
 	if ssh.AgentRequested(s) {
-		logger.Printf("agent requested")
+		logger.Info("agent requested")
 		l, err := ssh.NewAgentListener()
 		if err != nil {
 			logger.WithField("error", err).Error("failed to start agent")
