@@ -26,6 +26,8 @@ var (
 	ErrEOF = errors.New("EOF")
 )
 
+const bash = "bash"
+
 func getExitStatusFromError(err error) int {
 	if err == nil {
 		return 0
@@ -53,11 +55,7 @@ func setWinsize(f *os.File, w, h int) {
 		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
 }
 
-func handlePTY(logger *log.Entry, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
-	cmd := exec.Command("bash")
-	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
-	cmd.Env = append(cmd.Env, os.Environ()...)
-
+func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
 	f, err := pty.Start(cmd)
 	if err != nil {
 		logger.WithField("error", err).Error("failed to start pty session")
@@ -70,66 +68,45 @@ func handlePTY(logger *log.Entry, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ss
 		}
 	}()
 
+	wg := &sync.WaitGroup{}
 	go func() {
 		io.Copy(f, s) // stdin
 	}()
-	io.Copy(s, f) // stdout
-	cmd.Wait()
-}
 
-func connectionHandler(s ssh.Session) {
-	sessionID := uuid.New().String()
-	logger := log.WithFields(log.Fields{"session.id": sessionID})
-	defer func() {
-		s.Close()
-		logger.Print("session closed")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(s, f) // stdout
 	}()
 
-	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
-
-	ptyReq, winCh, isPty := s.Pty()
-	if isPty {
-		logger.Println("handling PTY session")
-		handlePTY(logger, s, ptyReq, winCh)
-		return
+	wg.Wait()
+	if err := cmd.Wait(); err != nil {
+		logger.WithError(err).Errorf("pty command failed while waiting")
 	}
 
-	args := []string{"-c", s.RawCommand()}
-	cmd := exec.Command("bash", args...)
-	cmd.Env = append(cmd.Env, os.Environ()...)
-	cmd.Env = append(cmd.Env, s.Environ()...)
-
-	if ssh.AgentRequested(s) {
-		logger.Printf("agent requested")
-		l, err := ssh.NewAgentListener()
-		if err != nil {
-			logger.WithField("error", err).Error("failed to start agent")
-			return
-		}
-
-		defer l.Close()
-		go ssh.ForwardAgentConnections(l, s)
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "SSH_AUTH_SOCK", l.Addr().String()))
+	if err := s.Exit(getExitStatusFromError(err)); err != nil {
+		logger.WithError(err).Errorf("pty session failed to exit")
 	}
+}
 
+func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StdoutPipe")
 		return
 	}
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StderrPipe")
 		return
 	}
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StdinPipe")
 		return
 	}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
 
 	if err = cmd.Start(); err != nil {
 		logger.WithError(err).Errorf("couldn't start command '%s'", cmd.String())
@@ -143,6 +120,8 @@ func connectionHandler(s ssh.Session) {
 		}
 	}()
 
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if _, err := io.Copy(s, stdout); err != nil {
@@ -150,6 +129,7 @@ func connectionHandler(s ssh.Session) {
 		}
 	}()
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if _, err := io.Copy(s.Stderr(), stderr); err != nil {
@@ -166,6 +146,41 @@ func connectionHandler(s ssh.Session) {
 	if err := s.Exit(getExitStatusFromError(err)); err != nil {
 		logger.WithError(err).Errorf("session failed to exit")
 	}
+}
+
+func connectionHandler(s ssh.Session) {
+	sessionID := uuid.New().String()
+	logger := log.WithFields(log.Fields{"session.id": sessionID})
+	defer func() {
+		s.Close()
+		logger.Info("session closed")
+	}()
+
+	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
+
+	cmd := buildCmd(s)
+
+	if ssh.AgentRequested(s) {
+		logger.Info("agent requested")
+		l, err := ssh.NewAgentListener()
+		if err != nil {
+			logger.WithField("error", err).Error("failed to start agent")
+			return
+		}
+
+		defer l.Close()
+		go ssh.ForwardAgentConnections(l, s)
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "SSH_AUTH_SOCK", l.Addr().String()))
+	}
+
+	ptyReq, winCh, isPty := s.Pty()
+	if isPty {
+		logger.Println("handling PTY session")
+		handlePTY(logger, cmd, s, ptyReq, winCh)
+		return
+	}
+
+	handleNoTTY(logger, cmd, s)
 }
 
 // ListenAndServe starts the SSH server using port
@@ -221,4 +236,20 @@ func sftpHandler(sess ssh.Session) {
 	} else if err != nil {
 		log.Println("sftp server completed with error:", err)
 	}
+}
+
+func buildCmd(s ssh.Session) *exec.Cmd {
+	var cmd *exec.Cmd
+
+	if len(s.RawCommand()) == 0 {
+		cmd = exec.Command(bash)
+	} else {
+		args := []string{"-c", s.RawCommand()}
+		cmd = exec.Command(bash, args...)
+	}
+
+	cmd.Env = append(cmd.Env, os.Environ()...)
+	cmd.Env = append(cmd.Env, s.Environ()...)
+
+	return cmd
 }
