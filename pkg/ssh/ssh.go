@@ -1,14 +1,13 @@
 package ssh
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -27,36 +26,26 @@ var (
 	ErrEOF = errors.New("EOF")
 )
 
-type exitStatusMsg struct {
-	Status uint32
-}
-
-func exitStatus(err error) (exitStatusMsg, error) {
-	if err != nil {
-		if ErrEOF == err {
-			return exitStatusMsg{0}, nil
-		}
-
-		if exiterr, ok := err.(*exec.ExitError); ok {
-			// There is no platform independent way to retrieve
-			// the exit code, but the following will work on Unix
-			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
-				return exitStatusMsg{uint32(status.ExitStatus())}, nil
-			}
-		}
-		return exitStatusMsg{0}, err
-	}
-	return exitStatusMsg{0}, nil
-}
-
-func assert(at string, err error, s ssh.Session) bool {
-	if err != nil {
-		log.Printf("%s failed: %s", at, err)
-		s.Write([]byte("internal error\n"))
-		return true
+func getExitStatusFromError(err error) int {
+	if err == nil {
+		return 0
 	}
 
-	return false
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		return 1
+	}
+
+	waitStatus, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok {
+		if exitErr.Success() {
+			return 0
+		}
+
+		return 1
+	}
+
+	return waitStatus.ExitStatus()
 }
 
 func setWinsize(f *os.File, w, h int) {
@@ -96,7 +85,8 @@ func connectionHandler(s ssh.Session) {
 		logger.Print("session closed")
 	}()
 
-	logger.Printf("starting ssh session with command %+v\n", s.RawCommand())
+	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
+
 	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
 		logger.Println("handling PTY session")
@@ -104,29 +94,10 @@ func connectionHandler(s ssh.Session) {
 		return
 	}
 
-	c := s.Command()
-	executable := c[0]
-	var args []string
-	if len(c) > 1 {
-		args = c[1:]
-	}
-
-	path, err := exec.LookPath(executable)
-	if err == nil {
-		executable = path
-	}
-
-	execPath, err := filepath.Abs(executable)
-	if err != nil {
-		io.WriteString(s, fmt.Sprintf("unable to locate executable: %s\n", executable))
-		return
-	}
-
-	cmd := exec.Command(execPath, args...)
+	args := []string{"-c", s.RawCommand()}
+	cmd := exec.Command("bash", args...)
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, s.Environ()...)
-	cmd.Stdout = s
-	cmd.Stderr = s.Stderr()
 
 	if ssh.AgentRequested(s) {
 		logger.Printf("agent requested")
@@ -141,23 +112,59 @@ func connectionHandler(s ssh.Session) {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "SSH_AUTH_SOCK", l.Addr().String()))
 	}
 
-	stdinPipe, err := cmd.StdinPipe()
-	if assert("exec cmd.StdinPipe", err, s) {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		logger.WithError(err).Errorf("couldn't get StdoutPipe")
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		logger.WithError(err).Errorf("couldn't get StderrPipe")
+		return
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		logger.WithError(err).Errorf("couldn't get StdinPipe")
+		return
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	if err = cmd.Start(); err != nil {
+		logger.WithError(err).Errorf("couldn't start command '%s'", cmd.String())
 		return
 	}
 
 	go func() {
-		defer stdinPipe.Close()
-		io.Copy(stdinPipe, s)
+		defer stdin.Close()
+		if _, err := io.Copy(stdin, s); err != nil {
+			logger.WithError(err).Errorf("failed to write session to stdin.")
+		}
 	}()
 
-	status, err := exitStatus(cmd.Run())
-	if !assert("exit", err, s) {
-		a := make([]byte, 4)
-		binary.LittleEndian.PutUint32(a, status.Status)
-		if _, err = s.SendRequest("exit-status", false, a); err != nil {
-			assert("exit", err, s)
+	go func() {
+		defer wg.Done()
+		if _, err := io.Copy(s, stdout); err != nil {
+			logger.WithError(err).Errorf("failed to write stdout to session.")
 		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if _, err := io.Copy(s.Stderr(), stderr); err != nil {
+			logger.WithError(err).Errorf("failed to write stderr to session.")
+		}
+	}()
+
+	wg.Wait()
+
+	if err := cmd.Wait(); err != nil {
+		logger.WithError(err).Errorf("command failed while waiting")
+	}
+
+	if err := s.Exit(getExitStatusFromError(err)); err != nil {
+		logger.WithError(err).Errorf("session failed to exit")
 	}
 }
 
@@ -166,9 +173,8 @@ func ListenAndServe(port int) error {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
-		Addr:        fmt.Sprintf(":%d", port),
-		IdleTimeout: 30 * time.Second,
-		Handler:     connectionHandler,
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: connectionHandler,
 		ChannelHandlers: map[string]ssh.ChannelHandler{
 			"direct-tcpip": ssh.DirectTCPIPHandler,
 			"session":      ssh.DefaultSessionHandler,

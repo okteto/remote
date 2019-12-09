@@ -6,4 +6,4 @@ build:
 
 .PHONY: publish
 publish:
-	okteto build -t okteto/remote:0.2.0 .
+	okteto build -t okteto/remote:0.2.1 .
