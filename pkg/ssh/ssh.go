@@ -85,7 +85,8 @@ func connectionHandler(s ssh.Session) {
 		logger.Print("session closed")
 	}()
 
-	logger.Printf("starting ssh session with command %+v\n", s.RawCommand())
+	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
+
 	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
 		logger.Println("handling PTY session")
@@ -93,10 +94,7 @@ func connectionHandler(s ssh.Session) {
 		return
 	}
 
-	c := s.RawCommand()
-	args := []string{"-c"}
-	args = append(args, c)
-
+	args := []string{"-c", s.RawCommand()}
 	cmd := exec.Command("bash", args...)
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, s.Environ()...)
