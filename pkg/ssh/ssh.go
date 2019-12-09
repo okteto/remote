@@ -173,9 +173,8 @@ func ListenAndServe(port int) error {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
-		Addr:        fmt.Sprintf(":%d", port),
-		IdleTimeout: 30 * time.Second,
-		Handler:     connectionHandler,
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: connectionHandler,
 		ChannelHandlers: map[string]ssh.ChannelHandler{
 			"direct-tcpip": ssh.DirectTCPIPHandler,
 			"session":      ssh.DefaultSessionHandler,
