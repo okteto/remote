@@ -10,6 +10,9 @@ import (
 	"github.com/okteto/remote/pkg/ssh"
 )
 
+// CommitString is the commit used to build the server
+var CommitString string
+
 func main() {
 	if err := remoteOS.AssertBash(); err != nil {
 		log.Fatalf("failed to detect bash: %s", err)
@@ -24,6 +27,6 @@ func main() {
 		}
 	}
 
-	log.Printf("ssh server started in 0.0.0.0:%d\n", port)
+	log.Infof("ssh server %s started in 0.0.0.0:%d\n", CommitString, port)
 	log.Fatal(ssh.ListenAndServe(port))
 }

@@ -9,6 +9,9 @@ RUN go mod download
 COPY Makefile /app
 COPY pkg /app/pkg
 COPY cmd /app/cmd
+COPY .git /app/.git
+
+RUN git rev-parse --short HEAD
 RUN make
 
 FROM alpine
