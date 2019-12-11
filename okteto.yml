@@ -5,11 +5,9 @@ command:
 workdir: /app
 forward:
   - 2345:2345
-  - 22000:22100
+  - 22000:22
 volumes:
  - /go
-environment:
-  - OKTETO_REMOTE_PORT=22100
 securityContext:
   capabilities:
     add: ["SYS_PTRACE"]

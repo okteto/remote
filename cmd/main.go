@@ -18,7 +18,7 @@ func main() {
 		log.Fatalf("failed to detect bash: %s", err)
 	}
 
-	port := 22000
+	port := 22
 	if p, ok := os.LookupEnv("OKTETO_REMOTE_PORT"); ok {
 		var err error
 		port, err = strconv.Atoi(p)
