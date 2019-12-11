@@ -27,6 +27,6 @@ func main() {
 		}
 	}
 
-	log.Infof("ssh server %s started in 0.0.0.0:%d\n", CommitString, port)
+	log.Infof("ssh server %s started in 0.0.0.0:%d", CommitString, port)
 	log.Fatal(ssh.ListenAndServe(port))
 }
