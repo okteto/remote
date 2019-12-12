@@ -14,6 +14,8 @@ import (
 var CommitString string
 
 func main() {
+	log.SetOutput(os.Stdout)
+
 	if err := remoteOS.AssertBash(); err != nil {
 		log.Fatalf("failed to detect bash: %s", err)
 	}
