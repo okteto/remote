@@ -56,6 +56,10 @@ func setWinsize(f *os.File, w, h int) {
 }
 
 func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
+	if len(ptyReq.Term) > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
+	}
+
 	f, err := pty.Start(cmd)
 	if err != nil {
 		logger.WithField("error", err).Error("failed to start pty session")
