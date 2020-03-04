@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -20,12 +21,16 @@ func main() {
 		log.Fatalf("failed to detect bash: %s", err)
 	}
 
-	port := 22
+	port := 2222
 	if p, ok := os.LookupEnv("OKTETO_REMOTE_PORT"); ok {
 		var err error
 		port, err = strconv.Atoi(p)
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("%s is not a valid port number", p))
+		}
+
+		if port <= 1024 {
+			panic(fmt.Sprintf("%d is a reserved port", port))
 		}
 	}
 
