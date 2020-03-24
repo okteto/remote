@@ -40,7 +40,6 @@ func TestLoadAuthorizedKeys(t *testing.T) {
 	}
 
 	pubkey := `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCuALm7hOVj7inLN7VkSj7RIQlRORTwuMYDVOLoxSLbXaWV6A/+zuChMGFjn7XZDl8FWok6CygTntkPqDIvCnQYkiqohtoxCwUgS8qbWHeiYVwI0RvBk/8dGLtQRaR/bMhqaChvMMIrSvKOrxC7QfIi/F18+q132f6ZbizjZHSvAjoaeCJftc9JV7VC/VoS6ctYIeVouC2xC6+Cp8BQGuR8jVnSo4qTZsLH4mV+/OkEaCa5og2C43FzOQkm8IsTpk4CBhaWbTxIkWVBXftST6E2ijc0N+BrRRyZc78sQv5nmDkAbfIf4EqtITR/7CXklu64zznJUy0HyhmhXd8kOWaWSL80augTnYgaPT6r0lP2Xz85aInT281Twm/edgCGGkYMxNNzzYLVSH5lo/+TGQSQOlmvgdGjxVsE4x25tZybvbIPzmLwA9QzF6H/t8G83S6ZMZShx1ax1y8BkZ45b/LslEj/t0wU/wnNjG+RBeCGIA73GSX+aCJBHs+Ie4a6T++jP3dQLysMrPH3XA2+M4J2zfNRqFAUSjP7Ub3pHG5p5uUeoot2yXMy6CDHyScYlZQ91SyEYLteav8WpSNcogdp5mEzQQiZlgJjVTGpAkpnfvOjP508RYC7HqWlYEkAtMmQYXWiCGEdNpF2Vxdn1JAK0U8GnOyvlhMtXhHuqdSiUw==`
-
 	parsed, _, _, _, err := gossh.ParseAuthorizedKey([]byte(pubkey))
 	if err != nil {
 		t.Fatalf("failed to parse key: %s", err)
@@ -57,6 +56,42 @@ func TestLoadAuthorizedKeys(t *testing.T) {
 
 	if len(k) != 1 {
 		t.Error("loaded more than 1 key")
+	}
+
+	if !ssh.KeysEqual(k[0], parsed) {
+		t.Error("loaded key is not the same")
+	}
+}
+
+func TestLoadAuthorizedKeys_multiple(t *testing.T) {
+	// empty file
+	path, err := ioutil.TempFile("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer os.Remove(path.Name())
+
+	pubkey := `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCuALm7hOVj7inLN7VkSj7RIQlRORTwuMYDVOLoxSLbXaWV6A/+zuChMGFjn7XZDl8FWok6CygTntkPqDIvCnQYkiqohtoxCwUgS8qbWHeiYVwI0RvBk/8dGLtQRaR/bMhqaChvMMIrSvKOrxC7QfIi/F18+q132f6ZbizjZHSvAjoaeCJftc9JV7VC/VoS6ctYIeVouC2xC6+Cp8BQGuR8jVnSo4qTZsLH4mV+/OkEaCa5og2C43FzOQkm8IsTpk4CBhaWbTxIkWVBXftST6E2ijc0N+BrRRyZc78sQv5nmDkAbfIf4EqtITR/7CXklu64zznJUy0HyhmhXd8kOWaWSL80augTnYgaPT6r0lP2Xz85aInT281Twm/edgCGGkYMxNNzzYLVSH5lo/+TGQSQOlmvgdGjxVsE4x25tZybvbIPzmLwA9QzF6H/t8G83S6ZMZShx1ax1y8BkZ45b/LslEj/t0wU/wnNjG+RBeCGIA73GSX+aCJBHs+Ie4a6T++jP3dQLysMrPH3XA2+M4J2zfNRqFAUSjP7Ub3pHG5p5uUeoot2yXMy6CDHyScYlZQ91SyEYLteav8WpSNcogdp5mEzQQiZlgJjVTGpAkpnfvOjP508RYC7HqWlYEkAtMmQYXWiCGEdNpF2Vxdn1JAK0U8GnOyvlhMtXhHuqdSiUw==`
+
+	for i := 0; i < 3; i++ {
+		if _, err := path.WriteString(pubkey + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parsed, _, _, _, err := gossh.ParseAuthorizedKey([]byte(pubkey))
+	if err != nil {
+		t.Fatalf("failed to parse key: %s", err)
+	}
+
+	k, err := LoadAuthorizedKeys(path.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(k) != 3 {
+		t.Error("didn't load 3 authorized keys")
 	}
 
 	if !ssh.KeysEqual(k[0], parsed) {
