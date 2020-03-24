@@ -14,6 +14,8 @@ import (
 // CommitString is the commit used to build the server
 var CommitString string
 
+const authorizedKeysPath = "/var/okteto/remote/authorized_keys"
+
 func main() {
 	log.SetOutput(os.Stdout)
 
@@ -34,6 +36,15 @@ func main() {
 		}
 	}
 
+	keys, err := ssh.LoadAuthorizedKeys(authorizedKeysPath)
+	if err != nil {
+		log.Fatalf("Failed to load authorized_keys: %s", err)
+	}
+
+	if keys == nil {
+		log.Warningf("remote server is running without authentication enabled")
+	}
+
 	log.Infof("ssh server %s started in 0.0.0.0:%d", CommitString, port)
-	log.Fatal(ssh.ListenAndServe(port))
+	log.Fatal(ssh.ListenAndServe(port, keys))
 }

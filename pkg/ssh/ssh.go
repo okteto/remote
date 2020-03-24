@@ -26,7 +26,9 @@ var (
 	ErrEOF = errors.New("EOF")
 )
 
-const bash = "bash"
+const (
+	bash = "bash"
+)
 
 func getExitStatusFromError(err error) int {
 	if err == nil {
@@ -187,12 +189,55 @@ func connectionHandler(s ssh.Session) {
 	handleNoTTY(logger, cmd, s)
 }
 
+// LoadAuthorizedKeys loads path as an array.
+// It will return nil if path doesn't exist.
+func LoadAuthorizedKeys(path string) ([]ssh.PublicKey, error) {
+	authorizedKeysBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	authorizedKeys := []ssh.PublicKey{}
+	for len(authorizedKeysBytes) > 0 {
+		pubKey, _, _, rest, err := ssh.ParseAuthorizedKey(authorizedKeysBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		authorizedKeys = append(authorizedKeys, pubKey)
+		authorizedKeysBytes = rest
+	}
+
+	if len(authorizedKeys) == 0 {
+		return nil, fmt.Errorf("%s was empty", path)
+	}
+
+	return authorizedKeys, nil
+}
+
 // ListenAndServe starts the SSH server using port
-func ListenAndServe(port int) error {
+func ListenAndServe(port int, authorizedKeys []ssh.PublicKey) error {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr: fmt.Sprintf(":%d", port),
+		PublicKeyHandler: func(ctx ssh.Context, key ssh.PublicKey) bool {
+			if authorizedKeys == nil {
+				return true
+			}
+
+			for _, k := range authorizedKeys {
+				if ssh.KeysEqual(key, k) {
+					return true
+				}
+			}
+
+			return false
+		},
 		Handler: connectionHandler,
 		ChannelHandlers: map[string]ssh.ChannelHandler{
 			"direct-tcpip": ssh.DirectTCPIPHandler,
@@ -215,7 +260,7 @@ func ListenAndServe(port int) error {
 		},
 	}
 
-	server.SetOption(ssh.HostKeyPEM([]byte(privateKeyBytes)))
+	server.SetOption(ssh.HostKeyPEM([]byte(hostKeyBytes)))
 
 	return server.ListenAndServe()
 
