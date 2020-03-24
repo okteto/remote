@@ -9,6 +9,11 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
+const (
+	goodKey = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDBIpLXzFcYKRBoB76vrUWaD0SZ9tstmZfoPX1ZF0rrK7ZLk9kVD+vGDdmPALSAvUCk/WM1h4BNa57SY6KjmVrbcVVYSW/4i7Vnp/KIsx9D5Tkj+Ytu2VFHpLm7ocnCqEoB1iP8edatbogkIh7fJ5HszfD3d47PU6dA8tMonIlLCjfwQO1FFkJ5V353L+5JLQpGlsDidYjUHXvC6j7zJlvEgtxImuDyRNvpJJ6QZhDJz2GeRuaR+ZFbjVFL7Q4AqDlYbNDH3Whi/Uv3ZByrBQcARXbcvqWI/DbKQJCoaq8Xl+G3EAwSClaF2U2DTWWs8VDmiHNbXYaNJqppGObfHkh9 test@example.com`
+	badKey  = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDR2feI3OWc8HUdCQyWDEF3+AwClRktiXPQebSByfN23IMoJLVpyf/zWjBtdBFjXrUPqlcPwCwMw85qixtNa1cjUk/PikYIFsvX4xkkRq4ufdsYu/DF7bcIb704qEITIXanToc0bJX0Sx/3OmP1d0X9GxKP++gFAdUNSXDGcTp5bAnfDLYQM+HgakI/v/h25zfz4f0XkFXcU7NHp7mE29ssyka7JilWZa9/Aah24mOZ8j0U2D9yS67hTd84tJ5mUrruR7WsXfFGb4pCwos3VVW5xhBm8aymSka6j24mQK9jH6ZcbKbrElgeTNNA1YHJTYISrj1V0ors4ivS2J+Y5bzV test@example.com`
+)
+
 func Test_loadPrivateKey(t *testing.T) {
 	_, err := gossh.ParsePrivateKey([]byte(hostKeyBytes))
 	if err != nil {
@@ -39,13 +44,12 @@ func TestLoadAuthorizedKeys(t *testing.T) {
 		t.Error("empty file didn't fail")
 	}
 
-	pubkey := `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCuALm7hOVj7inLN7VkSj7RIQlRORTwuMYDVOLoxSLbXaWV6A/+zuChMGFjn7XZDl8FWok6CygTntkPqDIvCnQYkiqohtoxCwUgS8qbWHeiYVwI0RvBk/8dGLtQRaR/bMhqaChvMMIrSvKOrxC7QfIi/F18+q132f6ZbizjZHSvAjoaeCJftc9JV7VC/VoS6ctYIeVouC2xC6+Cp8BQGuR8jVnSo4qTZsLH4mV+/OkEaCa5og2C43FzOQkm8IsTpk4CBhaWbTxIkWVBXftST6E2ijc0N+BrRRyZc78sQv5nmDkAbfIf4EqtITR/7CXklu64zznJUy0HyhmhXd8kOWaWSL80augTnYgaPT6r0lP2Xz85aInT281Twm/edgCGGkYMxNNzzYLVSH5lo/+TGQSQOlmvgdGjxVsE4x25tZybvbIPzmLwA9QzF6H/t8G83S6ZMZShx1ax1y8BkZ45b/LslEj/t0wU/wnNjG+RBeCGIA73GSX+aCJBHs+Ie4a6T++jP3dQLysMrPH3XA2+M4J2zfNRqFAUSjP7Ub3pHG5p5uUeoot2yXMy6CDHyScYlZQ91SyEYLteav8WpSNcogdp5mEzQQiZlgJjVTGpAkpnfvOjP508RYC7HqWlYEkAtMmQYXWiCGEdNpF2Vxdn1JAK0U8GnOyvlhMtXhHuqdSiUw==`
-	parsed, _, _, _, err := gossh.ParseAuthorizedKey([]byte(pubkey))
+	parsed, _, _, _, err := gossh.ParseAuthorizedKey([]byte(goodKey))
 	if err != nil {
 		t.Fatalf("failed to parse key: %s", err)
 	}
 
-	if _, err := path.WriteString(pubkey); err != nil {
+	if _, err := path.WriteString(goodKey); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,6 +65,20 @@ func TestLoadAuthorizedKeys(t *testing.T) {
 	if !ssh.KeysEqual(k[0], parsed) {
 		t.Error("loaded key is not the same")
 	}
+
+	srv := Server{AuthorizedKeys: k}
+	if !srv.authorize(nil, parsed) {
+		t.Error("failed to authorize loaded key")
+	}
+
+	bad, _, _, _, err := gossh.ParseAuthorizedKey([]byte(badKey))
+	if err != nil {
+		t.Fatalf("failed to parse key: %s", err)
+	}
+
+	if srv.authorize(nil, bad) {
+		t.Error("authorized bad key")
+	}
 }
 
 func TestLoadAuthorizedKeys_multiple(t *testing.T) {
@@ -72,15 +90,13 @@ func TestLoadAuthorizedKeys_multiple(t *testing.T) {
 
 	defer os.Remove(path.Name())
 
-	pubkey := `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCuALm7hOVj7inLN7VkSj7RIQlRORTwuMYDVOLoxSLbXaWV6A/+zuChMGFjn7XZDl8FWok6CygTntkPqDIvCnQYkiqohtoxCwUgS8qbWHeiYVwI0RvBk/8dGLtQRaR/bMhqaChvMMIrSvKOrxC7QfIi/F18+q132f6ZbizjZHSvAjoaeCJftc9JV7VC/VoS6ctYIeVouC2xC6+Cp8BQGuR8jVnSo4qTZsLH4mV+/OkEaCa5og2C43FzOQkm8IsTpk4CBhaWbTxIkWVBXftST6E2ijc0N+BrRRyZc78sQv5nmDkAbfIf4EqtITR/7CXklu64zznJUy0HyhmhXd8kOWaWSL80augTnYgaPT6r0lP2Xz85aInT281Twm/edgCGGkYMxNNzzYLVSH5lo/+TGQSQOlmvgdGjxVsE4x25tZybvbIPzmLwA9QzF6H/t8G83S6ZMZShx1ax1y8BkZ45b/LslEj/t0wU/wnNjG+RBeCGIA73GSX+aCJBHs+Ie4a6T++jP3dQLysMrPH3XA2+M4J2zfNRqFAUSjP7Ub3pHG5p5uUeoot2yXMy6CDHyScYlZQ91SyEYLteav8WpSNcogdp5mEzQQiZlgJjVTGpAkpnfvOjP508RYC7HqWlYEkAtMmQYXWiCGEdNpF2Vxdn1JAK0U8GnOyvlhMtXhHuqdSiUw==`
-
 	for i := 0; i < 3; i++ {
-		if _, err := path.WriteString(pubkey + "\n"); err != nil {
+		if _, err := path.WriteString(goodKey + "\n"); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	parsed, _, _, _, err := gossh.ParseAuthorizedKey([]byte(pubkey))
+	parsed, _, _, _, err := gossh.ParseAuthorizedKey([]byte(goodKey))
 	if err != nil {
 		t.Fatalf("failed to parse key: %s", err)
 	}
@@ -96,5 +112,10 @@ func TestLoadAuthorizedKeys_multiple(t *testing.T) {
 
 	if !ssh.KeysEqual(k[0], parsed) {
 		t.Error("loaded key is not the same")
+	}
+
+	srv := Server{AuthorizedKeys: k}
+	if !srv.authorize(nil, k[1]) {
+		t.Error("failed to authorize loaded key")
 	}
 }
