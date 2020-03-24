@@ -1,6 +1,6 @@
 package ssh
 
-const privateKeyBytes = `-----BEGIN RSA PRIVATE KEY-----
+const hostKeyBytes = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEAtexM3T6wz53qRalZjcMht1uIOBccQvpzPFiG4Kgc+VqEN/0l
 pKWEOzy2jKqO2fsCOkb1jCeO+WzlUFhsV2CfRgSvwj499ow9R4Z8dU+4PBQKJ+U0
 ddc7nPbBAcDaMyjDXQVHx/oQNBKEKmvRCbFfy4mopff9j0JPd5xwNT2L8NSClzgH

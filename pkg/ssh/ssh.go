@@ -26,7 +26,12 @@ var (
 	ErrEOF = errors.New("EOF")
 )
 
-const bash = "bash"
+// Server holds the ssh server configuration
+type Server struct {
+	Port           int
+	Shell          string
+	AuthorizedKeys []ssh.PublicKey
+}
 
 func getExitStatusFromError(err error) int {
 	if err == nil {
@@ -152,7 +157,7 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
 	}
 }
 
-func connectionHandler(s ssh.Session) {
+func (srv *Server) connectionHandler(s ssh.Session) {
 	sessionID := uuid.New().String()
 	logger := log.WithFields(log.Fields{"session.id": sessionID})
 	defer func() {
@@ -162,7 +167,7 @@ func connectionHandler(s ssh.Session) {
 
 	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
 
-	cmd := buildCmd(s)
+	cmd := srv.buildCmd(s)
 
 	if ssh.AgentRequested(s) {
 		logger.Info("agent requested")
@@ -187,13 +192,54 @@ func connectionHandler(s ssh.Session) {
 	handleNoTTY(logger, cmd, s)
 }
 
+// LoadAuthorizedKeys loads path as an array.
+// It will return nil if path doesn't exist.
+func LoadAuthorizedKeys(path string) ([]ssh.PublicKey, error) {
+	authorizedKeysBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	authorizedKeys := []ssh.PublicKey{}
+	for len(authorizedKeysBytes) > 0 {
+		pubKey, _, _, rest, err := ssh.ParseAuthorizedKey(authorizedKeysBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		authorizedKeys = append(authorizedKeys, pubKey)
+		authorizedKeysBytes = rest
+	}
+
+	if len(authorizedKeys) == 0 {
+		return nil, fmt.Errorf("%s was empty", path)
+	}
+
+	return authorizedKeys, nil
+}
+
+func (srv *Server) authorize(ctx ssh.Context, key ssh.PublicKey) bool {
+	for _, k := range srv.AuthorizedKeys {
+		if ssh.KeysEqual(key, k) {
+			return true
+		}
+	}
+
+	log.Println("access denied")
+	return false
+}
+
 // ListenAndServe starts the SSH server using port
-func ListenAndServe(port int) error {
+func (srv *Server) ListenAndServe() error {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: connectionHandler,
+		Addr:    fmt.Sprintf(":%d", srv.Port),
+		Handler: srv.connectionHandler,
 		ChannelHandlers: map[string]ssh.ChannelHandler{
 			"direct-tcpip": ssh.DirectTCPIPHandler,
 			"session":      ssh.DefaultSessionHandler,
@@ -215,7 +261,10 @@ func ListenAndServe(port int) error {
 		},
 	}
 
-	server.SetOption(ssh.HostKeyPEM([]byte(privateKeyBytes)))
+	server.SetOption(ssh.HostKeyPEM([]byte(hostKeyBytes)))
+	if srv.AuthorizedKeys != nil {
+		server.PublicKeyHandler = srv.authorize
+	}
 
 	return server.ListenAndServe()
 
@@ -242,14 +291,14 @@ func sftpHandler(sess ssh.Session) {
 	}
 }
 
-func buildCmd(s ssh.Session) *exec.Cmd {
+func (srv Server) buildCmd(s ssh.Session) *exec.Cmd {
 	var cmd *exec.Cmd
 
 	if len(s.RawCommand()) == 0 {
-		cmd = exec.Command(bash)
+		cmd = exec.Command(srv.Shell)
 	} else {
 		args := []string{"-c", s.RawCommand()}
-		cmd = exec.Command(bash, args...)
+		cmd = exec.Command(srv.Shell, args...)
 	}
 
 	cmd.Env = append(cmd.Env, os.Environ()...)
