@@ -14,11 +14,13 @@ import (
 // CommitString is the commit used to build the server
 var CommitString string
 
-const authorizedKeysPath = "/var/okteto/remote/authorized_keys"
+const (
+	authorizedKeysPath = "/var/okteto/remote/authorized_keys"
+	shell              = "bash"
+)
 
 func main() {
 	log.SetOutput(os.Stdout)
-
 	if err := remoteOS.AssertBash(); err != nil {
 		log.Fatalf("failed to detect bash: %s", err)
 	}
@@ -45,6 +47,12 @@ func main() {
 		log.Warningf("remote server is running without authentication enabled")
 	}
 
-	log.Infof("ssh server %s started in 0.0.0.0:%d", CommitString, port)
-	log.Fatal(ssh.ListenAndServe(port, keys))
+	srv := ssh.Server{
+		Port:           port,
+		Shell:          shell,
+		AuthorizedKeys: keys,
+	}
+
+	log.Infof("ssh server %s started in 0.0.0.0:%d", CommitString, srv.Port)
+	log.Fatal(srv.ListenAndServe())
 }
