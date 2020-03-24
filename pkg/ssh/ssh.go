@@ -236,6 +236,7 @@ func ListenAndServe(port int, authorizedKeys []ssh.PublicKey) error {
 				}
 			}
 
+			log.Println("access denied")
 			return false
 		},
 		Handler: connectionHandler,
