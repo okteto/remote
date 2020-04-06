@@ -1,5 +1,5 @@
 COMMIT_SHA := $(shell git rev-parse --short HEAD)
-
+VERSION := '0.2.5'
 .DEFAULT_GOAL := build
 
 .PHONY: build
@@ -8,4 +8,5 @@ build:
 
 .PHONY: publish
 publish:
-	okteto build -t okteto/remote:0.2.4 .
+	git tag ${VERSION}
+	okteto build -t okteto/remote:${VERSION} . 
