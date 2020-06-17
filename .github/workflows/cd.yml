@@ -16,10 +16,6 @@ jobs:
       name: Get the tag
       run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
         
-    - uses: okteto/login@master
-      with:
-        token: ${{ secrets.OKTETO_TOKEN }}
-    
     - uses: azure/docker-login@v1
       with:
         username: '${{ secrets.DOCKER_USER }}'
@@ -29,6 +25,7 @@ jobs:
       uses: okteto/build@master
       env:
         COMMIT_SHA: ${{ github.sha }}
+        OKTETO_TOKEN: ${{ secrets.OKTETO_TOKEN }}
       with:
         tag: okteto/remote:${{ steps.tag.outputs.TAG }}
         buildargs: COMMIT_SHA
