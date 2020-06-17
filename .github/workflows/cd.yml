@@ -12,7 +12,10 @@ jobs:
     
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
-
+    - id: tag
+      name: Get the tag
+      run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+        
     - uses: okteto/login@master
       with:
         token: ${{ secrets.OKTETO_TOKEN }}
@@ -22,5 +25,5 @@ jobs:
       env:
         COMMIT_SHA: ${{ github.sha }}
       with:
-        tag: okteto/remote:${{ github.ref }}
+        tag: okteto/remote:${{ steps.tag.outputs.TAG }}
         buildargs: COMMIT_SHA
