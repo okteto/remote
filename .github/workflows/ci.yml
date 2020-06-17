@@ -28,13 +28,10 @@ jobs:
         qemu-version: latest
         buildx-version: latest
     
-    - name: Available platforms
-      run: echo ${{ steps.buildx.outputs.platforms }}
-
     - name: "Build"
       run: |
         docker buildx build \
-          --platform linux/amd64,linux/arm64 \
+          --platform linux/amd64,linux/arm64,linux/arm/v7 \
           --output "type=image,push=false" \
           --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
 
@@ -46,7 +43,7 @@ jobs:
     - name: "Push"
       run: |
         docker buildx build \
-          --platform linux/amd64,linux/arm64 \
+          --platform linux/amd64,linux/arm64,linux/arm/v7 \
           --output "type=image,push=true" \
           --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
       if: ${{ github.event_name == 'release' }}
