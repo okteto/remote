@@ -20,6 +20,11 @@ jobs:
       with:
         token: ${{ secrets.OKTETO_TOKEN }}
     
+    - uses: azure/docker-login@v1
+      with:
+        username: '${{ secrets.DOCKER_USER }}'
+        password: '${{ secrets.DOCKER_PASS }}'
+
     - name: "Build"
       uses: okteto/build@master
       env:
