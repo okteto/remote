@@ -24,8 +24,18 @@ jobs:
         username: '${{ secrets.DOCKER_USER }}'
         password: '${{ secrets.DOCKER_PASS }}'
 
+    - name: Set up Docker Buildx
+      uses: crazy-max/ghaction-docker-buildx@v3
+    
+    - name: Available platforms
+      run: echo ${{ steps.buildx.outputs.platforms }}
+
     - name: "Build"
-      run: docker build --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
+      run: |
+        docker buildx build \
+          --platform linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64 \
+          --output "type=image,push=false" \
+          --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
 
     - id: tag
       name: Get the tag
@@ -34,6 +44,8 @@ jobs:
     
     - name: "Push"
       run: |
-        docker tag remote:${{ github.sha }} okteto/remote:${{ steps.tag.outputs.TAG }}
-        docker push okteto/remote:${{ steps.tag.outputs.TAG }}
+        docker buildx build \
+          --platform linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64 \
+          --output "type=image,push=true" \
+          --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
       if: ${{ github.event_name == 'release' }}
