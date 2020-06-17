@@ -1,0 +1,49 @@
+name: Go
+on: 
+  pull_request:
+    branches: master
+  push:
+    branches: 
+      - master
+  release:
+    types:
+      - published
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Check out code
+      uses: actions/checkout@v2
+
+    - uses: azure/docker-login@v1
+      with:
+        username: '${{ secrets.DOCKER_USER }}'
+        password: '${{ secrets.DOCKER_PASS }}'
+
+    - name: Set up Docker Buildx
+      uses: crazy-max/ghaction-docker-buildx@v3
+      with:
+        qemu-version: latest
+        buildx-version: latest
+    
+    - name: "Build"
+      run: |
+        docker buildx build \
+          --platform linux/amd64,linux/arm64,linux/arm/v7 \
+          --output "type=image,push=false" \
+          --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
+
+    - id: tag
+      name: Get the tag
+      run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
+      if: ${{ github.event_name == 'release' }}
+    
+    - name: "Push"
+      run: |
+        docker buildx build \
+          --platform linux/amd64,linux/arm64,linux/arm/v7 \
+          --output "type=image,push=true" \
+          --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
+      if: ${{ github.event_name == 'release' }}
