@@ -8,6 +8,8 @@ forward:
   - 22000:2222
 volumes:
  - /go
+persistentVolume:
+  enabled: true
 securityContext:
   capabilities:
     add: ["SYS_PTRACE"]
