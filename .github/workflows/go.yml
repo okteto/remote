@@ -29,4 +29,4 @@ jobs:
 
     - name: "Push"
       run: docker push okteto/remote:${{ steps.tag.outputs.TAG }}
-      if: github.event_name == release
+      if: github.event_name == 'release'
