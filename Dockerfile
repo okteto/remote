@@ -12,7 +12,7 @@ COPY cmd /app/cmd
 ARG COMMIT_SHA
 RUN make
 
-FROM alpine
+FROM busybox
 
 COPY --from=builder /app/remote /usr/local/bin/remote
 RUN chmod +x /usr/local/bin/remote
