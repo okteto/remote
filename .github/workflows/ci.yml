@@ -1,4 +1,4 @@
-name: Go
+name: CI
 on: 
   pull_request:
     branches: master
@@ -45,5 +45,5 @@ jobs:
         docker buildx build \
           --platform linux/amd64,linux/arm64,linux/arm/v7 \
           --output "type=image,push=true" \
-          --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
+          --build-arg COMMIT_SHA=${{ github.sha }} -t okteto/remote:${{ steps.tag.outputs.TAG }} .
       if: ${{ github.event_name == 'release' }}
