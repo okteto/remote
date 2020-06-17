@@ -24,14 +24,16 @@ jobs:
         username: '${{ secrets.DOCKER_USER }}'
         password: '${{ secrets.DOCKER_PASS }}'
 
+    - name: "Build"
+      run: docker build --build-arg COMMIT_SHA=${{ github.sha }} -t remote:${{ github.sha }} .
+
     - id: tag
       name: Get the tag
       run: echo ::set-output name=TAG::${GITHUB_REF#refs/tags/}
-
-    - name: "Build"
-      run: docker build --build-arg COMMIT_SHA=${{ github.sha }} docker push okteto/remote:${{ steps.tag.outputs.TAG }} .
-
+      if: ${{ github.event_name == 'release' }}
+    
     - name: "Push"
       run: |
+        docker tag remote:${{ github.sha }} okteto/remote:${{ steps.tag.outputs.TAG }}
         docker push okteto/remote:${{ steps.tag.outputs.TAG }}
       if: ${{ github.event_name == 'release' }}
