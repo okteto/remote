@@ -1,4 +1,4 @@
-COMMIT_SHA := $(shell git rev-parse --short HEAD)
+COMMIT_SHA ?= $(shell git rev-parse --short HEAD)
 .DEFAULT_GOAL := build
 
 .PHONY: build
