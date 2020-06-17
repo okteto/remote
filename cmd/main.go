@@ -16,13 +16,13 @@ var CommitString string
 
 const (
 	authorizedKeysPath = "/var/okteto/remote/authorized_keys"
-	shell              = "bash"
 )
 
 func main() {
 	log.SetOutput(os.Stdout)
-	if err := remoteOS.AssertBash(); err != nil {
-		log.Fatalf("failed to detect bash: %s", err)
+	shell, err := remoteOS.GetShell()
+	if err != nil {
+		log.Fatal(err.Error())
 	}
 
 	port := 2222
