@@ -22,10 +22,6 @@ jobs:
         password: '${{ secrets.DOCKER_PASS }}'
 
     - name: "Build"
-      uses: okteto/build@master
-      env:
-        COMMIT_SHA: ${{ github.sha }}
-        OKTETO_TOKEN: ${{ secrets.OKTETO_TOKEN }}
-      with:
-        tag: okteto/remote:${{ steps.tag.outputs.TAG }}
-        buildargs: COMMIT_SHA
+      run: |
+        docker build --build-arg COMMIT_SHA=${{ github.sha }} -t okteto/remote:${{ steps.tag.outputs.TAG }} .
+        docker push okteto/remote:${{ steps.tag.outputs.TAG }}
