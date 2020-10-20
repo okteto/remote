@@ -11,5 +11,3 @@ require (
 	github.com/sirupsen/logrus v1.7.0
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 )
-
-// replace github.com/gliderlabs/ssh v0.2.2 => github.com/rberrelleza/ssh v0.2.3-0.20191129151128-337be1657602
