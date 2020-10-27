@@ -306,7 +306,5 @@ func (srv Server) buildCmd(s ssh.Session) *exec.Cmd {
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, s.Environ()...)
 
-	log.Info(cmd.Path)
-	log.Info(cmd.Args)
 	return cmd
 }
