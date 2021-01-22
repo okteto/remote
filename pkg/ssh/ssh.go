@@ -7,14 +7,15 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/creack/pty"
 	"github.com/gliderlabs/ssh"
 	"github.com/google/uuid"
-	"github.com/kr/pty"
 	"github.com/pkg/sftp"
 	log "github.com/sirupsen/logrus"
 )
@@ -67,7 +68,10 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 
 	f, err := pty.Start(cmd)
 	if err != nil {
-		logger.WithField("error", err).Error("failed to start pty session")
+		logger.WithError(err).Error("failed to start pty session")
+		s.Stderr().Write([]byte(err.Error()))
+		exitWithCode(logger, s, err)
+
 		return
 	}
 
@@ -91,8 +95,21 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 	wg.Wait()
 	if err := cmd.Wait(); err != nil {
 		logger.WithError(err).Errorf("pty command failed while waiting")
+		sendErrAndExit(logger, s, err)
+		return
+	}
+}
+
+func sendErrAndExit(logger *log.Entry, s ssh.Session, err error) {
+	msg := fmt.Sprintf("%s\r\n", strings.TrimPrefix(err.Error(), "exec: "))
+	if _, err := s.Stderr().Write([]byte(msg)); err != nil {
+		logger.WithError(err).Errorf("failed to write error back to session")
 	}
 
+	exitWithCode(logger, s, err)
+}
+
+func exitWithCode(logger *log.Entry, s ssh.Session, err error) {
 	if err := s.Exit(getExitStatusFromError(err)); err != nil {
 		logger.WithError(err).Errorf("pty session failed to exit")
 	}
@@ -102,23 +119,27 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StdoutPipe")
+		exitWithCode(logger, s, err)
 		return
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StderrPipe")
+		exitWithCode(logger, s, err)
 		return
 	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StdinPipe")
+		exitWithCode(logger, s, err)
 		return
 	}
 
 	if err = cmd.Start(); err != nil {
 		logger.WithError(err).Errorf("couldn't start command '%s'", cmd.String())
+		sendErrAndExit(logger, s, err)
 		return
 	}
 
@@ -150,10 +171,8 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
 
 	if err := cmd.Wait(); err != nil {
 		logger.WithError(err).Errorf("command failed while waiting")
-	}
-
-	if err := s.Exit(getExitStatusFromError(err)); err != nil {
-		logger.WithError(err).Errorf("session failed to exit")
+		sendErrAndExit(logger, s, err)
+		return
 	}
 }
 
@@ -173,7 +192,7 @@ func (srv *Server) connectionHandler(s ssh.Session) {
 		logger.Info("agent requested")
 		l, err := ssh.NewAgentListener()
 		if err != nil {
-			logger.WithField("error", err).Error("failed to start agent")
+			logger.WithError(err).Error("failed to start agent")
 			return
 		}
 
@@ -189,6 +208,7 @@ func (srv *Server) connectionHandler(s ssh.Session) {
 		return
 	}
 
+	logger.Println("handling non PTY session")
 	handleNoTTY(logger, cmd, s)
 }
 
