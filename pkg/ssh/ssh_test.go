@@ -156,9 +156,8 @@ func Test_connectionHandler(t *testing.T) {
 			name:    "bad-command-with-shell",
 			command: `sh -c "badcommand"`,
 			stdout:  "",
-			// when running a sh command, the error of the command is written to stderr first, followed by the error of the actual shell
-			stderr: `sh: badcommand: command not found
-exit status 127`,
+			// we don't check if it because the output is different between OSes
+			//stderr: `sh: badcommand: command not found`
 			expectErr: true,
 		},
 	}
@@ -186,9 +185,11 @@ exit status 127`,
 				t.Errorf("bad stdout. got:\n%s\nexpected:\n%s", out, tt.stdout)
 			}
 
-			err := strings.TrimSuffix(stderr.String(), "\n")
-			if err != tt.stderr {
-				t.Errorf("bad stderr. got:\n'%s'\nexpected\n'%s'", err, tt.stderr)
+			if tt.stderr != "" {
+				err := strings.TrimSuffix(stderr.String(), "\n")
+				if err != tt.stderr {
+					t.Errorf("bad stderr. got:\n'%s'\nexpected\n'%s'", err, tt.stderr)
+				}
 			}
 		})
 	}
