@@ -140,10 +140,25 @@ func Test_connectionHandler(t *testing.T) {
 			stderr:  "",
 		},
 		{
+			name:    "with-shell",
+			command: `sh -c "echo hi"`,
+			stdout:  "hi",
+			stderr:  "",
+		},
+		{
 			name:      "bad-command",
 			command:   "badcommand",
 			stdout:    "",
 			stderr:    `"badcommand": executable file not found in $PATH`,
+			expectErr: true,
+		},
+		{
+			name:    "bad-command-with-shell",
+			command: `sh -c "badcommand"`,
+			stdout:  "",
+			// when running a sh command, the error of the command is written to stderr first, followed by the error of the actual shell
+			stderr: `sh: badcommand: command not found
+exit status 127`,
 			expectErr: true,
 		},
 	}

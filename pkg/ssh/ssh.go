@@ -99,7 +99,7 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 }
 
 func sendErrAndExit(logger *log.Entry, s ssh.Session, err error) {
-	msg := fmt.Sprintf("%s", strings.TrimPrefix(err.Error(), "exec: "))
+	msg := strings.TrimPrefix(err.Error(), "exec: ")
 	if _, err := s.Stderr().Write([]byte(msg)); err != nil {
 		logger.WithError(err).Errorf("failed to write error back to session")
 	}
