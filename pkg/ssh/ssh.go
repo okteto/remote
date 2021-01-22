@@ -99,7 +99,7 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 }
 
 func sendErrAndExit(logger *log.Entry, s ssh.Session, err error) {
-	msg := fmt.Sprintf("%s\r\n", strings.TrimPrefix(err.Error(), "exec: "))
+	msg := fmt.Sprintf("%s", strings.TrimPrefix(err.Error(), "exec: "))
 	if _, err := s.Stderr().Write([]byte(msg)); err != nil {
 		logger.WithError(err).Errorf("failed to write error back to session")
 	}
@@ -256,6 +256,11 @@ func (srv *Server) authorize(ctx ssh.Context, key ssh.PublicKey) bool {
 
 // ListenAndServe starts the SSH server using port
 func (srv *Server) ListenAndServe() error {
+	server := srv.getServer()
+	return server.ListenAndServe()
+}
+
+func (srv *Server) getServer() *ssh.Server {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
@@ -288,8 +293,7 @@ func (srv *Server) ListenAndServe() error {
 		server.PublicKeyHandler = srv.authorize
 	}
 
-	return server.ListenAndServe()
-
+	return server
 }
 
 func sftpHandler(sess ssh.Session) {
