@@ -69,9 +69,7 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 	f, err := pty.Start(cmd)
 	if err != nil {
 		logger.WithError(err).Error("failed to start pty session")
-		s.Stderr().Write([]byte(err.Error()))
-		exitWithCode(logger, s, err)
-
+		sendErrAndExit(logger, s, err)
 		return
 	}
 
@@ -98,6 +96,8 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 		sendErrAndExit(logger, s, err)
 		return
 	}
+
+	s.Exit(0)
 }
 
 func sendErrAndExit(logger *log.Entry, s ssh.Session, err error) {
@@ -174,6 +174,8 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
 		sendErrAndExit(logger, s, err)
 		return
 	}
+
+	s.Exit(0)
 }
 
 func (srv *Server) connectionHandler(s ssh.Session) {
