@@ -7,14 +7,15 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/creack/pty"
 	"github.com/gliderlabs/ssh"
 	"github.com/google/uuid"
-	"github.com/kr/pty"
 	"github.com/pkg/sftp"
 	log "github.com/sirupsen/logrus"
 )
@@ -60,15 +61,15 @@ func setWinsize(f *os.File, w, h int) {
 		uintptr(unsafe.Pointer(&struct{ h, w, x, y uint16 }{uint16(h), uint16(w), 0, 0})))
 }
 
-func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
+func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, winCh <-chan ssh.Window) error {
 	if len(ptyReq.Term) > 0 {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 	}
 
 	f, err := pty.Start(cmd)
 	if err != nil {
-		logger.WithField("error", err).Error("failed to start pty session")
-		return
+		logger.WithError(err).Error("failed to start pty session")
+		return err
 	}
 
 	go func() {
@@ -91,6 +92,16 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 	wg.Wait()
 	if err := cmd.Wait(); err != nil {
 		logger.WithError(err).Errorf("pty command failed while waiting")
+		return err
+	}
+
+	return nil
+}
+
+func sendErrAndExit(logger *log.Entry, s ssh.Session, err error) {
+	msg := strings.TrimPrefix(err.Error(), "exec: ")
+	if _, err := s.Stderr().Write([]byte(msg)); err != nil {
+		logger.WithError(err).Errorf("failed to write error back to session")
 	}
 
 	if err := s.Exit(getExitStatusFromError(err)); err != nil {
@@ -98,28 +109,28 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 	}
 }
 
-func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
+func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StdoutPipe")
-		return
+		return err
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StderrPipe")
-		return
+		return err
 	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		logger.WithError(err).Errorf("couldn't get StdinPipe")
-		return
+		return err
 	}
 
 	if err = cmd.Start(); err != nil {
 		logger.WithError(err).Errorf("couldn't start command '%s'", cmd.String())
-		return
+		return err
 	}
 
 	go func() {
@@ -150,11 +161,10 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) {
 
 	if err := cmd.Wait(); err != nil {
 		logger.WithError(err).Errorf("command failed while waiting")
+		return err
 	}
 
-	if err := s.Exit(getExitStatusFromError(err)); err != nil {
-		logger.WithError(err).Errorf("session failed to exit")
-	}
+	return nil
 }
 
 func (srv *Server) connectionHandler(s ssh.Session) {
@@ -173,7 +183,7 @@ func (srv *Server) connectionHandler(s ssh.Session) {
 		logger.Info("agent requested")
 		l, err := ssh.NewAgentListener()
 		if err != nil {
-			logger.WithField("error", err).Error("failed to start agent")
+			logger.WithError(err).Error("failed to start agent")
 			return
 		}
 
@@ -185,11 +195,22 @@ func (srv *Server) connectionHandler(s ssh.Session) {
 	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
 		logger.Println("handling PTY session")
-		handlePTY(logger, cmd, s, ptyReq, winCh)
+		if err := handlePTY(logger, cmd, s, ptyReq, winCh); err != nil {
+			sendErrAndExit(logger, s, err)
+			return
+		}
+
+		s.Exit(0)
 		return
 	}
 
-	handleNoTTY(logger, cmd, s)
+	logger.Println("handling non PTY session")
+	if err := handleNoTTY(logger, cmd, s); err != nil {
+		sendErrAndExit(logger, s, err)
+		return
+	}
+
+	s.Exit(0)
 }
 
 // LoadAuthorizedKeys loads path as an array.
@@ -235,6 +256,11 @@ func (srv *Server) authorize(ctx ssh.Context, key ssh.PublicKey) bool {
 
 // ListenAndServe starts the SSH server using port
 func (srv *Server) ListenAndServe() error {
+	server := srv.getServer()
+	return server.ListenAndServe()
+}
+
+func (srv *Server) getServer() *ssh.Server {
 	forwardHandler := &ssh.ForwardedTCPHandler{}
 
 	server := &ssh.Server{
@@ -262,12 +288,12 @@ func (srv *Server) ListenAndServe() error {
 	}
 
 	server.SetOption(ssh.HostKeyPEM([]byte(hostKeyBytes)))
+
 	if srv.AuthorizedKeys != nil {
 		server.PublicKeyHandler = srv.authorize
 	}
 
-	return server.ListenAndServe()
-
+	return server
 }
 
 func sftpHandler(sess ssh.Session) {

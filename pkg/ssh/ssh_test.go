@@ -1,8 +1,12 @@
 package ssh
 
 import (
+	"bytes"
+	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/gliderlabs/ssh"
@@ -117,5 +121,130 @@ func TestLoadAuthorizedKeys_multiple(t *testing.T) {
 	srv := Server{AuthorizedKeys: k}
 	if !srv.authorize(nil, k[1]) {
 		t.Error("failed to authorize loaded key")
+	}
+}
+
+func Test_connectionHandler(t *testing.T) {
+
+	var tests = []struct {
+		name      string
+		command   string
+		stdout    string
+		stderr    string
+		expectErr bool
+	}{
+		{
+			name:    "basic",
+			command: "echo hi",
+			stdout:  "hi",
+			stderr:  "",
+		},
+		{
+			name:    "with-shell",
+			command: `sh -c "echo hi"`,
+			stdout:  "hi",
+			stderr:  "",
+		},
+		{
+			name:      "bad-command",
+			command:   "badcommand",
+			stdout:    "",
+			stderr:    `"badcommand": executable file not found in $PATH`,
+			expectErr: true,
+		},
+		{
+			name:    "bad-command-with-shell",
+			command: `sh -c "badcommand"`,
+			stdout:  "",
+			// we don't check if it because the output is different between OSes
+			//stderr: `sh: badcommand: command not found`
+			expectErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{}
+			srv := s.getServer()
+
+			session, _, cleanup := newTestSession(t, srv, nil)
+			defer cleanup()
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			session.Stderr = &stderr
+			session.Stdout = &stdout
+
+			if err := session.Run(tt.command); err != nil {
+				if !tt.expectErr {
+					t.Fatal(err)
+				}
+			}
+
+			out := strings.TrimSuffix(stdout.String(), "\n")
+			if out != tt.stdout {
+				t.Errorf("bad stdout. got:\n%s\nexpected:\n%s", out, tt.stdout)
+			}
+
+			if tt.stderr != "" {
+				err := strings.TrimSuffix(stderr.String(), "\n")
+				if err != tt.stderr {
+					t.Errorf("bad stderr. got:\n'%s'\nexpected\n'%s'", err, tt.stderr)
+				}
+			}
+		})
+	}
+}
+
+func serveOnce(srv *ssh.Server, l net.Listener) error {
+	conn, e := l.Accept()
+	if e != nil {
+		return e
+	}
+	srv.ChannelHandlers = map[string]ssh.ChannelHandler{
+		"session":      ssh.DefaultSessionHandler,
+		"direct-tcpip": ssh.DirectTCPIPHandler,
+	}
+	srv.HandleConn(conn)
+	return nil
+}
+
+func newLocalListener() net.Listener {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		if l, err = net.Listen("tcp6", "[::1]:0"); err != nil {
+			panic(fmt.Sprintf("failed to listen on a port: %v", err))
+		}
+	}
+	return l
+}
+
+func newTestSession(t *testing.T, srv *ssh.Server, cfg *gossh.ClientConfig) (*gossh.Session, *gossh.Client, func()) {
+	l := newLocalListener()
+	go serveOnce(srv, l)
+	return newClientSession(t, l.Addr().String(), cfg)
+}
+
+func newClientSession(t *testing.T, addr string, config *gossh.ClientConfig) (*gossh.Session, *gossh.Client, func()) {
+	if config == nil {
+		config = &gossh.ClientConfig{}
+	}
+
+	if config.HostKeyCallback == nil {
+		config.HostKeyCallback = gossh.InsecureIgnoreHostKey()
+	}
+
+	client, err := gossh.Dial("tcp", addr, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return session, client, func() {
+		session.Close()
+		client.Close()
 	}
 }
