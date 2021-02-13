@@ -146,10 +146,16 @@ func Test_connectionHandler(t *testing.T) {
 			stderr:  "",
 		},
 		{
-			name:      "bad-command",
-			command:   "badcommand",
-			stdout:    "",
-			stderr:    `"badcommand": executable file not found in $PATH`,
+			name:    "several-commands",
+			command: `m=hello; echo $m`,
+			stdout:  "hello",
+			stderr:  "",
+		},
+		{
+			name:    "bad-command",
+			command: "badcommand",
+			stdout:  "",
+			//stderr:    `"badcommand": executable file not found in $PATH`,
 			expectErr: true,
 		},
 		{
@@ -164,6 +170,7 @@ func Test_connectionHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &Server{}
+			s.Shell = "sh"
 			srv := s.getServer()
 
 			session, _, cleanup := newTestSession(t, srv, nil)

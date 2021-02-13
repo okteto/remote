@@ -320,17 +320,16 @@ func sftpHandler(sess ssh.Session) {
 func (srv Server) buildCmd(s ssh.Session) *exec.Cmd {
 	var cmd *exec.Cmd
 
-	switch len(s.Command()) {
-	case 0:
+	if len(s.RawCommand()) == 0 {
 		cmd = exec.Command(srv.Shell)
-	case 1:
-		cmd = exec.Command(s.Command()[0])
-	default:
-		cmd = exec.Command(s.Command()[0], s.Command()[1:]...)
+	} else {
+		args := []string{"-c", s.RawCommand()}
+		cmd = exec.Command(srv.Shell, args...)
 	}
 
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, s.Environ()...)
 
+	fmt.Println(cmd.String())
 	return cmd
 }
