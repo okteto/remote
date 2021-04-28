@@ -97,7 +97,7 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 	case <-waitCh:
 		logger.Info("stdout finished")
 	case <-time.NewTicker(1 * time.Second).C:
-		logger.Info("stdout didn't fiinsih after 1s")
+		logger.Info("stdout didn't finish after 1s")
 	}
 
 	return nil
