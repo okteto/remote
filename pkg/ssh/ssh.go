@@ -78,21 +78,26 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 		}
 	}()
 
-	wg := &sync.WaitGroup{}
 	go func() {
 		io.Copy(f, s) // stdin
 	}()
 
-	wg.Add(1)
+	waitCh := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(waitCh)
 		io.Copy(s, f) // stdout
 	}()
 
-	wg.Wait()
 	if err := cmd.Wait(); err != nil {
 		logger.WithError(err).Errorf("pty command failed while waiting")
 		return err
+	}
+
+	select {
+	case <-waitCh:
+		logger.Info("stdout finished")
+	case <-time.NewTicker(1 * time.Second).C:
+		logger.Info("stdout didn't finish after 1s")
 	}
 
 	return nil
