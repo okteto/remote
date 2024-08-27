@@ -21,8 +21,6 @@ import (
 )
 
 var (
-	idleTimeout = 60 * time.Second
-
 	// ErrEOF is the error when the terminal exits
 	ErrEOF = errors.New("EOF")
 )
