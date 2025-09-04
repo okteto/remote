@@ -18,7 +18,7 @@ jobs:
     - name: Install Go
       uses: actions/setup-go@v2
       with:
-        go-version: 1.22.x
+        go-version: 1.24.x
     - name: Test
       run: make test
     - uses: azure/docker-login@v1
