@@ -1,4 +1,4 @@
-FROM golang:1.24.7-bookworm AS builder
+FROM golang:1.24.9-bookworm AS builder
 
 WORKDIR /app
 
@@ -16,4 +16,3 @@ FROM busybox:1.37.0
 
 COPY --from=builder /app/remote /usr/local/bin/remote
 RUN chmod +x /usr/local/bin/remote
-
