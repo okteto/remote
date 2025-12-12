@@ -1,6 +1,8 @@
 package ssh
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +32,86 @@ type Server struct {
 	Port           int
 	Shell          string
 	AuthorizedKeys []ssh.PublicKey
+}
+
+// loggingWriter wraps an io.Writer and logs all data written to it
+type loggingWriter struct {
+	writer io.Writer
+	logger *log.Entry
+	name   string
+	buf    *bytes.Buffer
+}
+
+func newLoggingWriter(w io.Writer, logger *log.Entry, name string) *loggingWriter {
+	return &loggingWriter{
+		writer: w,
+		logger: logger,
+		name:   name,
+		buf:    &bytes.Buffer{},
+	}
+}
+
+func (lw *loggingWriter) Write(p []byte) (n int, err error) {
+	// Write to the actual destination
+	n, err = lw.writer.Write(p)
+
+	// Log the data
+	if n > 0 {
+		lw.buf.Write(p[:n])
+		// Log line by line for better readability
+		scanner := bufio.NewScanner(lw.buf)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line != "" {
+				lw.logger.WithField("stream", lw.name).Info(line)
+			}
+		}
+		// Keep any remaining partial line in the buffer
+		lw.buf.Reset()
+		if remaining := bytes.TrimRight(p[:n], "\n"); len(remaining) > 0 && !bytes.HasSuffix(p[:n], []byte("\n")) {
+			lw.buf.Write(remaining[bytes.LastIndexByte(remaining, '\n')+1:])
+		}
+	}
+
+	return n, err
+}
+
+// Flush logs any remaining buffered data
+func (lw *loggingWriter) Flush() {
+	if lw.buf.Len() > 0 {
+		lw.logger.WithField("stream", lw.name).Info(lw.buf.String())
+		lw.buf.Reset()
+	}
+}
+
+// loggingReader wraps an io.Reader and logs all data read from it
+type loggingReader struct {
+	reader io.Reader
+	logger *log.Entry
+	name   string
+}
+
+func newLoggingReader(r io.Reader, logger *log.Entry, name string) *loggingReader {
+	return &loggingReader{
+		reader: r,
+		logger: logger,
+		name:   name,
+	}
+}
+
+func (lr *loggingReader) Read(p []byte) (n int, err error) {
+	n, err = lr.reader.Read(p)
+
+	// Log the data
+	if n > 0 {
+		data := string(p[:n])
+		// Only log printable characters and basic control chars
+		if len(strings.TrimSpace(data)) > 0 {
+			lr.logger.WithField("stream", lr.name).Infof("Input: %q", strings.TrimSpace(data))
+		}
+	}
+
+	return n, err
 }
 
 func getExitStatusFromError(err error) int {
@@ -76,14 +158,21 @@ func handlePTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session, ptyReq ssh.Pty, 
 		}
 	}()
 
+	// Wrap the PTY file with logging to capture input
+	loggedPtyIn := newLoggingWriter(f, logger, "stdin")
+
 	go func() {
-		io.Copy(f, s) // stdin
+		io.Copy(loggedPtyIn, s) // stdin - captures user input
 	}()
+
+	// Wrap the session output with logging to capture output
+	loggedSessionOut := newLoggingWriter(s, logger, "stdout")
 
 	waitCh := make(chan struct{})
 	go func() {
 		defer close(waitCh)
-		io.Copy(s, f) // stdout
+		io.Copy(loggedSessionOut, f) // stdout - captures command output
+		loggedSessionOut.Flush()
 	}()
 
 	if err := cmd.Wait(); err != nil {
@@ -136,28 +225,41 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) error {
 		return err
 	}
 
+	// Wrap stdin with logging to capture user input
+	loggedStdin := newLoggingWriter(stdin, logger, "stdin")
+
 	go func() {
 		defer stdin.Close()
-		if _, err := io.Copy(stdin, s); err != nil {
+		if _, err := io.Copy(loggedStdin, s); err != nil {
 			logger.WithError(err).Errorf("failed to write session to stdin.")
 		}
+		loggedStdin.Flush()
 	}()
 
 	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if _, err := io.Copy(s, stdout); err != nil {
-			logger.WithError(err).Errorf("failed to write stdout to session.")
-		}
-	}()
+
+	// Wrap stdout with logging to capture command output
+	loggedStdout := newLoggingWriter(s, logger, "stdout")
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if _, err := io.Copy(s.Stderr(), stderr); err != nil {
+		if _, err := io.Copy(loggedStdout, stdout); err != nil {
+			logger.WithError(err).Errorf("failed to write stdout to session.")
+		}
+		loggedStdout.Flush()
+	}()
+
+	// Wrap stderr with logging to capture error output
+	loggedStderr := newLoggingWriter(s.Stderr(), logger, "stderr")
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := io.Copy(loggedStderr, stderr); err != nil {
 			logger.WithError(err).Errorf("failed to write stderr to session.")
 		}
+		loggedStderr.Flush()
 	}()
 
 	wg.Wait()
@@ -172,10 +274,30 @@ func handleNoTTY(logger *log.Entry, cmd *exec.Cmd, s ssh.Session) error {
 
 func (srv *Server) connectionHandler(s ssh.Session) {
 	sessionID := uuid.New().String()
-	logger := log.WithFields(log.Fields{"session.id": sessionID})
+	startTime := time.Now()
+
+	// Extract session metadata
+	remoteAddr := s.RemoteAddr().String()
+	user := s.User()
+	command := s.RawCommand()
+
+	logger := log.WithFields(log.Fields{
+		"session.id":      sessionID,
+		"remote.address":  remoteAddr,
+		"user":            user,
+	})
+
+	// Log session start
+	logger.WithFields(log.Fields{
+		"command": command,
+	}).Info("SSH session started")
+
 	defer func() {
+		duration := time.Since(startTime)
 		s.Close()
-		logger.Info("session closed")
+		logger.WithFields(log.Fields{
+			"duration": duration.String(),
+		}).Info("SSH session closed")
 	}()
 
 	logger.Infof("starting ssh session with command '%+v'", s.RawCommand())
@@ -300,6 +422,25 @@ func (srv *Server) getServer() *ssh.Server {
 }
 
 func sftpHandler(sess ssh.Session) {
+	sessionID := uuid.New().String()
+	startTime := time.Now()
+
+	logger := log.WithFields(log.Fields{
+		"session.id":      sessionID,
+		"remote.address":  sess.RemoteAddr().String(),
+		"user":            sess.User(),
+		"subsystem":       "sftp",
+	})
+
+	logger.Info("SFTP session started")
+
+	defer func() {
+		duration := time.Since(startTime)
+		logger.WithFields(log.Fields{
+			"duration": duration.String(),
+		}).Info("SFTP session closed")
+	}()
+
 	debugStream := ioutil.Discard
 	serverOptions := []sftp.ServerOption{
 		sftp.WithDebug(debugStream),
@@ -309,14 +450,14 @@ func sftpHandler(sess ssh.Session) {
 		serverOptions...,
 	)
 	if err != nil {
-		log.Printf("sftp server init error: %s\n", err)
+		logger.WithError(err).Error("sftp server init error")
 		return
 	}
 	if err := server.Serve(); err == io.EOF {
 		server.Close()
-		log.Println("sftp client exited session.")
+		logger.Info("sftp client exited session")
 	} else if err != nil {
-		log.Println("sftp server completed with error:", err)
+		logger.WithError(err).Error("sftp server completed with error")
 	}
 }
 
