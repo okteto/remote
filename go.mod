@@ -1,13 +1,13 @@
 module github.com/okteto/remote
 
-go 1.24.7
+go 1.24.11
 
 require (
 	github.com/creack/pty v1.1.11
 	github.com/gliderlabs/ssh v0.3.1
 	github.com/google/uuid v1.1.2
 	github.com/pkg/sftp v1.12.0
-	github.com/sirupsen/logrus v1.7.0
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/crypto v0.35.0
 )
 
